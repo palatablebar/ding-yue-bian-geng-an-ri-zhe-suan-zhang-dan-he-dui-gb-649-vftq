@@ -68,6 +68,23 @@
 - `warn`：行可用但需要人工复核（迟到、同日多次、夏令时、期间外变更）。
 - `info`：已自动归一（千分位、全角、三位小数、尾差补差）。
 
+## 更正补入（M8）
+
+- 更正版本 `run_id` 前缀 `SC-`，发布记录 `release_id` 前缀 `CR-`；`runs.kind=correction`、
+  `base_run_id` 指向基线、`version_no` 从 2 起递增（基线固定为 1）。
+- 幂等键：`correction_releases (base_run_id, file_sha256)` 唯一；同文件对同基线重跑复用已发布版本。
+- `quarantine.resolved=1` + `resolved_by=<release_id>`：该隔离 error 行已被某次更正补入结案；
+  基线版本的隔离行不受影响。
+- `correction_entries` 三态：`base`（原隔离事实与原账单额，隔离时为 0）、
+  `corrected`（补入行的更正值，带 `R_CORRECTED_ROW` 标记）、`final_cents/invoice_id`（最终版本）。
+- 更正专属原因码：
+  - `R_CORRECTED_ROW`（info）：隔离行经人工更正后补入。
+  - `R_CORRECTION_NO_QUARANTINE`（error）：更正行在隔离区没有未结案的对应错误记录。
+  - `R_CORRECTION_ALREADY_DONE`（error）：目标隔离记录已结案或原文件/行号不匹配。
+  - `R_CORRECTION_DUP_KEY`（error）：一份更正文件内同一订阅号出现多次。
+- 更正后行数账：`quarantined_rows` 减 N、`subs_kept` 加 N（N=补入行数），左右仍相等；
+  另以计数器 `corrected_rows` 与 `correction_releases` 审计表留痕。
+
 ## 运行清单
 
 - `run_id`：`SB-<本地时间戳>-<4 位随机>`，右侧两位 `check_digit` 为 mod-97 校验位。

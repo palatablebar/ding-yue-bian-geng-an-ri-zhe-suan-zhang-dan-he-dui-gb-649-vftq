@@ -11,6 +11,8 @@
 - 按日折算：日价 = 月价 ÷ 期间实际天数，全程 Decimal，只在记账时量化到分。
 - 变更抵扣：预缴整期，变更日抵扣旧套餐未用额度并按新价补收剩余天数。
 - 账单对账：行数账 / 期间天数账 / 金额账 / 出账账四本账，差异逐条说明。
+- 更正补入（M8）：只补隔离行的**版本化定向补入**，旧批次冻结不覆盖，同文件重跑幂等，
+  发布失败整体回滚到上一份完整旧版；页面并列展示「保留的原结果 / 补入行 / 最终版本」。
 - 导出：账单 CSV、分段 CSV（含原值与标记）、运行清单 JSON（run_id + 输入 sha256 + 校验位）。
 
 ## 核心规则
@@ -38,6 +40,22 @@
 | M5 变更抵扣 | 变更序列、替代关系、抵扣行 | `GET /api/changes` |
 | M6 账单对账 | 出账、账单明细、四本账 | `GET /api/invoices` |
 | M7 导出 | 账单 CSV、分段 CSV、清单 JSON | `GET /api/export/invoices.csv` |
+| M8 更正补入 | 定向补入发布、版本链、三态对照、失败回滚 | `POST /api/corrections` |
+
+## 更正补入的处理决定
+
+隔离行不整批重来，也不就地改写已确认账单，而是发布一个**新版本 run**（`kind=correction`）：
+
+- **只补隔离行**：更正文件每行必须命中当前版本隔离区一条未结案的 `error` 级订阅记录
+  （按订阅号，冲突时用「原行号」列定位）；命中不了、文件内重复或自身仍非法，整份拒绝、不落半结果。
+- **旧版冻结**：基线 run 的所有行不被改写，版本链（v1 原始采信 → v2 更正…）永久可查；
+  未受影响订阅的分段与账单逐字不变，只新增隔离行对应的账单。
+- **四账可解释**：补入后隔离 error 行转为可用，行数账左右同步变化仍相等；四账强制重算并校验全平，
+  不平则发布失败。
+- **幂等**：更正文件按 sha256 记唯一键，同一更正对同一基线重跑复用已发布版本，绝不重复补入。
+- **失败回滚**：发布在单事务内提交（run 转 done + 发布审计同生共死）；构建失败只留 `failed` 留痕，
+  临时 run 清理，当前版本仍是上一份完整旧版。
+- **整批替换拒绝**：`mode=replace` 一律 422——它会重算并改变已确认结果；要全量重算请走普通采信生成独立批次。
 
 ## 页面
 
@@ -49,6 +67,7 @@
 | `/proration` | 分段折算与日价 |
 | `/changes` | 变更序列与抵扣行 |
 | `/invoices` | 账单、对账、导出入口、点行看明细 |
+| `/corrections` | 更正发布、版本链、发布记录、原结果/补入行/最终版本三态对照 |
 
 ## 启动
 
@@ -66,6 +85,8 @@ docker compose up -d --build
 3. 期间日历页切换 2028-02 起点日期，核算出 29 天。
 4. 折算页看日价与分段金额；变更页看被替代的变更与抵扣行。
 5. 账单页点任意账单行看分段与抵扣行明细；底部导出账单 CSV、分段 CSV、清单 JSON。
+6. 更正页点「补入发布」，用 `subscriptions_correction.csv` 补回三条隔离订阅：
+   账单 10 → 13 张、四账仍全平；再点一次验证幂等复用；「整批替换」按钮演示被拒绝。
 
 ## 定义与已知不覆盖
 
@@ -79,10 +100,11 @@ docker compose up -d --build
 app/
   main.py config.py errors.py reasons.py manifest.py store.py web.py
   modules/m1_ingest … m7_export/   handler.py service.py + 2 个规则/读写文件
-  templates/  base + 6 页
-  static/     theme.css layout.css components.css app.js table.js invoices.js
+  modules/m8_correction/           validator.py service.py handler.py（版本化定向补入）
+  templates/  base + 7 页
+  static/     theme.css layout.css components.css app.js table.js invoices.js corrections.js
 docs/         DEPTH.md DATA-DICTIONARY.md RUNBOOK.md
-sample_data/  7 个脏样例（含 GB18030、截断、空态）
+sample_data/  7 个脏样例（含 GB18030、截断、空态）+ 更正样例 subscriptions_correction.csv
 tests/        conftest + 每模块 2 个测试文件 + e2e + invariants + fixtures
 ```
 

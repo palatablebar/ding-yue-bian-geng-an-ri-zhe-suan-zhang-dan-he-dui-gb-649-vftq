@@ -31,6 +31,8 @@
       <thead>
         <tr>
           <th>批次号</th>
+          <th class="num">版本</th>
+          <th>类型</th>
           <th>校验位</th>
           <th>状态</th>
           <th>生成时间</th>
@@ -43,7 +45,9 @@
       <tbody>
         {% for item in runs %}
         <tr>
-          <td><code>{{ item.run_id }}</code></td>
+          <td><a href="/?run_id={{ item.run_id }}"><code>{{ item.run_id }}</code></a></td>
+          <td class="num">v{{ item.version_no }}</td>
+          <td><span class="tag {% if item.kind == 'correction' %}tag-warn{% else %}tag-info{% endif %}">{{ item.kind|run_kind }}</span></td>
           <td><code>{{ item.check_digit }}</code></td>
           <td>{{ item.status|run_status }}</td>
           <td><code>{{ item.created_at|local }}</code></td>

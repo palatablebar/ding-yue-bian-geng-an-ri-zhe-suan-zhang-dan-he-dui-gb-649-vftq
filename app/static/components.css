@@ -240,3 +240,19 @@ dialog.detail h3 {
     animation: none !important;
   }
 }
+
+/* M8 更正补入：当前版本行与差额强调 */
+.table tr.is-current {
+  background: var(--paper-warm, #f7f2e7);
+  font-weight: 600;
+}
+
+.num-up {
+  color: #9a3b1f;
+  font-weight: 600;
+}
+
+.marks .tag {
+  margin: 1px 2px 1px 0;
+  white-space: nowrap;
+}

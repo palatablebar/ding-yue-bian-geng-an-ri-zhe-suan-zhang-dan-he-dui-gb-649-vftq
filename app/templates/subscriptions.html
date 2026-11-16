@@ -110,7 +110,7 @@
           <td class="num">{{ sub.row_no }}</td>
           <td>
             <div class="marks">
-              {% for code in sub.flags %}<span class="tag tag-info">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+              {% for code in sub.flags %}<span class="tag {% if code == 'R_CORRECTED_ROW' %}tag-ok{% else %}tag-info{% endif %}">{{ reason_labels.get(code, code) }}</span>{% endfor %}
             </div>
           </td>
         </tr>
@@ -149,10 +149,11 @@
       </thead>
       <tbody>
         {% for item in quarantine.entries %}
-        <tr>
+        <tr {% if item.resolved %}class="is-current"{% endif %}>
           <td><code>{{ item.file }}</code></td>
           <td class="num">{{ item.row_no if item.row_no else "—" }}</td>
-          <td><span class="tag {% if item.level == 'error' %}tag-bad{% elif item.level == 'warn' %}tag-warn{% else %}tag-info{% endif %}">{{ item.level_label }}</span></td>
+          <td><span class="tag {% if item.level == 'error' %}tag-bad{% elif item.level == 'warn' %}tag-warn{% else %}tag-info{% endif %}">{{ item.level_label }}</span>
+            {% if item.resolved %}<span class="tag tag-ok">已更正补入</span>{% endif %}</td>
           <td><code>{{ item.code }}</code></td>
           <td>{{ item.label }}</td>
           <td>{{ item.field }}</td>

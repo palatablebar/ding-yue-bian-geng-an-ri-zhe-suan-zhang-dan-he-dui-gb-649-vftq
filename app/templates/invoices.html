@@ -39,7 +39,7 @@
           <td class="nowrap">{{ row.status|invoice_status }}</td>
           <td>
             <div class="marks">
-              {% for code in row.flags %}<span class="tag tag-warn">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+              {% for code in row.flags %}<span class="tag {% if code == 'R_CORRECTED_ROW' %}tag-ok{% else %}tag-warn{% endif %}">{{ reason_labels.get(code, code) }}</span>{% endfor %}
             </div>
           </td>
         </tr>

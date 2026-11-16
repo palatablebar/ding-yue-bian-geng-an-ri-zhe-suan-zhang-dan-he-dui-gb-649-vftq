@@ -55,6 +55,30 @@ curl -s -X POST http://127.0.0.1:18208/api/subscriptions/import \
 - 只重算金额：`POST /api/proration`；重算分段与抵扣：`POST /api/changes`。两者都会重新出账并刷新四本账。
 - 想强制新建批次：改任一输入文件的内容（`batch_key` 由输入 sha256 决定）。
 
+## 更正补入（M8）
+
+```bash
+# JSON：指定样例目录里的更正文件
+curl -s -X POST http://127.0.0.1:18208/api/corrections \
+  -H 'Content-Type: application/json' \
+  -d '{"file":"subscriptions_correction.csv"}'
+
+# multipart：直接上传更正文件
+curl -s -X POST http://127.0.0.1:18208/api/corrections \
+  -F 'mode=patch' -F 'file=@/path/to/correction.csv'
+
+# 版本链与三态对照、发布记录、条目导出
+curl -s 'http://127.0.0.1:18208/api/corrections?run_id=<SC-...>'
+curl -s http://127.0.0.1:18208/api/corrections/releases
+curl -s -o /tmp/corrections.csv 'http://127.0.0.1:18208/api/corrections/entries.csv?run_id=<SC-...>'
+```
+
+- 只支持 `mode=patch`（定向补入）；`mode=replace` 返回 422 `E_CORRECTION_MODE`，不允许改写已确认结果。
+- 幂等键 = 基线 run + 更正文件 sha256；同文件重跑返回 `reused=true`，不新增版本、不重复补入。
+- 更正行必须命中隔离区未结案的 error 级订阅记录，否则 422 `E_CORRECTION_INVALID`，`detail.rejected` 逐条给原因。
+- 发布失败：临时 run（`running`）被清理，`correction_releases` 留一条 `failed`，当前版本仍是上一份完整旧版。
+- 页面 `/corrections` 看版本链、发布记录与「原结果 / 补入行 / 最终版本」三态对照。
+
 ## 重建数据库
 
 ```bash
@@ -72,6 +96,9 @@ docker compose up -d --build
 | 账单为 0 | 期间内全是暂停/试用，或月价为 0；看账单标记 `R_INVOICE_ZERO` |
 | 对账不平 | 看 `/api/reconcile` 哪一本账 `status=mismatch`，再看对应明细 |
 | 导出 404 `E_NO_RUN` | 还没批次；先采信 |
+| 更正 422 `E_CORRECTION_INVALID` | 更正行没命中未结案 error 隔离记录，或字段仍非法；看 `detail.rejected`，整份拒绝、基线不变 |
+| 更正 422 `E_CORRECTION_MODE` | 用了 `replace`；系统只支持定向补入 `patch` |
+| 更正 422 `E_CORRECTION_LEDGER` | 补入后四账不平，已自动回滚；看 `/api/corrections/releases` 的 failed 留痕 |
 | 容器内 pytest 失败 | `docker compose exec -T app python -m pytest -q`，先看第一个失败 |
 
 ## 测试

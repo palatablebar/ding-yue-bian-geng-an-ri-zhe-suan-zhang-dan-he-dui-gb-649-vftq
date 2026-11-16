@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS runs (
     input_digest TEXT NOT NULL DEFAULT '',
     params_json TEXT NOT NULL DEFAULT '{}',
     counters_json TEXT NOT NULL DEFAULT '{}',
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'ingest',
+    base_run_id TEXT NOT NULL DEFAULT '',
+    version_no INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_runs_key ON runs(batch_key, status);
 
@@ -84,7 +87,9 @@ CREATE TABLE IF NOT EXISTS quarantine (
     level TEXT NOT NULL,
     field TEXT NOT NULL DEFAULT '',
     raw_value TEXT NOT NULL DEFAULT '',
-    detail TEXT NOT NULL DEFAULT ''
+    detail TEXT NOT NULL DEFAULT '',
+    resolved INTEGER NOT NULL DEFAULT 0,
+    resolved_by TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_quarantine_run ON quarantine(run_id, code);
 
@@ -170,7 +175,75 @@ CREATE TABLE IF NOT EXISTS manifests (
     run_id TEXT PRIMARY KEY,
     json TEXT NOT NULL
 );
+
+-- M8 更正补入：一次发布就是一条审计记录；correction_digest 唯一保证同文件重跑不重复补入。
+CREATE TABLE IF NOT EXISTS correction_releases (
+    release_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    base_run_id TEXT NOT NULL,
+    root_run_id TEXT NOT NULL DEFAULT '',
+    batch_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    published_at TEXT,
+    affected_subs_json TEXT NOT NULL DEFAULT '[]',
+    added_invoices_json TEXT NOT NULL DEFAULT '[]',
+    rejected_json TEXT NOT NULL DEFAULT '[]',
+    note TEXT NOT NULL DEFAULT ''
+);
+
+-- 更正条目：保留的原结果（base 值）、补入行（correct 值）、最终版本三态都在这里。
+CREATE TABLE IF NOT EXISTS correction_entries (
+    release_id TEXT NOT NULL,
+    sub_id TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_row_no INTEGER NOT NULL,
+    reason_code TEXT NOT NULL,
+    field TEXT NOT NULL DEFAULT '',
+    raw_value TEXT NOT NULL DEFAULT '',
+    base_json TEXT NOT NULL DEFAULT '{}',
+    corrected_json TEXT NOT NULL DEFAULT '{}',
+    invoice_id TEXT NOT NULL DEFAULT '',
+    base_cents INTEGER NOT NULL DEFAULT 0,
+    final_cents INTEGER NOT NULL DEFAULT 0
+);
 """
+
+# 老库平滑升级：隔离区增加结案列，runs 增加版本谱系列；新库由建表语句直接带上。
+MIGRATIONS = (
+    "ALTER TABLE quarantine ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE quarantine ADD COLUMN resolved_by TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'ingest'",
+    "ALTER TABLE runs ADD COLUMN base_run_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE runs ADD COLUMN version_no INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE correction_releases ADD COLUMN root_run_id TEXT NOT NULL DEFAULT ''",
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    run_cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    if "kind" not in run_cols:
+        for statement in MIGRATIONS[:5]:
+            conn.execute(statement)
+    rel_cols = {row[1] for row in conn.execute(
+        "PRAGMA table_info(correction_releases)")}
+    if rel_cols and "root_run_id" not in rel_cols:
+        conn.execute(MIGRATIONS[5])
+        conn.execute(
+            "UPDATE correction_releases SET root_run_id=base_run_id WHERE root_run_id=''")
+    # 索引在补列之后创建，避免老库因缺列建索引失败
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_correction_digest "
+        "ON correction_releases(root_run_id, file_sha256)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_correction_base "
+        "ON correction_releases(base_run_id, status)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_correction_entries "
+        "ON correction_entries(release_id, sub_id)")
 
 
 def _loads(value: str, fallback):
@@ -186,12 +259,28 @@ class Store:
         Path(self.path).resolve().parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            _migrate(conn)
 
     @contextmanager
     def connect(self):
         conn = sqlite3.connect(self.path, timeout=15.0)
         conn.row_factory = sqlite3.Row
         try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @contextmanager
+    def transaction(self):
+        """更正发布专用：整段在一个事务里，异常整体回滚，不留半批。"""
+        conn = sqlite3.connect(self.path, timeout=15.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
             yield conn
             conn.commit()
         except Exception:
@@ -248,6 +337,7 @@ class Store:
         return self._run_row(row) if row else None
 
     def latest_run(self, status: str | None = None) -> dict | None:
+        """最新「已完成」批次：更正发布后新版本自然成为当前批次，失败的 running 不会顶替。"""
         with self.connect() as conn:
             if status:
                 row = conn.execute(
@@ -255,9 +345,42 @@ class Store:
                     "LIMIT 1", (status,)).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT * FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 1"
+                    "SELECT * FROM runs WHERE status='done' "
+                    "ORDER BY created_at DESC, rowid DESC LIMIT 1"
                 ).fetchone()
         return self._run_row(row) if row else None
+
+    def list_lineage(self, run_id: str) -> list[dict]:
+        """版本链：沿 base_run_id 找到根，再逐代向下收集后继，按 version_no 排序。"""
+        seed = self.get_run(run_id)
+        if seed is None:
+            return []
+        root_id = run_id
+        guard = 0
+        while guard < 100:
+            current = self.get_run(root_id)
+            if current is None or not current.get("base_run_id"):
+                break
+            root_id = current["base_run_id"]
+            guard += 1
+        chain: list[dict] = []
+        cursor = root_id
+        guard = 0
+        while cursor and guard < 100:
+            current = self.get_run(cursor)
+            if current is None:
+                break
+            chain.append(current)
+            with self.connect() as conn:
+                nxt = conn.execute(
+                    "SELECT * FROM runs WHERE base_run_id=? AND status='done' "
+                    "ORDER BY version_no DESC, created_at DESC LIMIT 1",
+                    (cursor,)).fetchone()
+            cursor = self._run_row(nxt)["run_id"] if nxt else ""
+            guard += 1
+        if not any(row["run_id"] == run_id for row in chain):
+            chain.append(seed)
+        return sorted(chain, key=lambda item: (item["version_no"], item["created_at"]))
 
     def list_runs(self, limit: int = 30) -> list[dict]:
         with self.connect() as conn:
@@ -298,10 +421,11 @@ class Store:
         return out
 
     # ---------- 订阅 ----------
-    def put_subscriptions(self, run_id: str, items: list[dict]) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM subscriptions WHERE run_id=?", (run_id,))
-            conn.executemany(
+    def put_subscriptions(self, run_id: str, items: list[dict],
+                          conn: sqlite3.Connection | None = None) -> None:
+        def _work(c: sqlite3.Connection) -> None:
+            c.execute("DELETE FROM subscriptions WHERE run_id=?", (run_id,))
+            c.executemany(
                 """INSERT INTO subscriptions (run_id, sub_id, account, plan, price_text,
                         monthly, period_start, period_end, tz, state, period_days, leap,
                         source_file, row_no, flags_json)
@@ -312,6 +436,12 @@ class Store:
                   int(item["leap"]), item.get("source_file", ""), int(item.get("row_no", 0)),
                   json.dumps(item.get("flags", []), ensure_ascii=False)) for item in items],
             )
+
+        if conn is not None:
+            _work(conn)
+            return
+        with self.connect() as owned:
+            _work(owned)
 
     def list_subscriptions(self, run_id: str) -> list[dict]:
         with self.connect() as conn:
@@ -537,13 +667,21 @@ class Store:
         return [dict(row) for row in rows]
 
     # ---------- 清单 ----------
-    def put_manifest(self, run_id: str, data: dict) -> None:
-        with self.connect() as conn:
-            conn.execute(
+    def put_manifest(self, run_id: str, data: dict,
+                     conn: sqlite3.Connection | None = None) -> None:
+        payload = json.dumps(data, ensure_ascii=False)
+
+        def _work(c: sqlite3.Connection) -> None:
+            c.execute(
                 "INSERT INTO manifests (run_id, json) VALUES (?,?) "
                 "ON CONFLICT(run_id) DO UPDATE SET json=excluded.json",
-                (run_id, json.dumps(data, ensure_ascii=False)),
-            )
+                (run_id, payload))
+
+        if conn is not None:
+            _work(conn)
+            return
+        with self.connect() as owned:
+            _work(owned)
 
     def get_manifest(self, run_id: str) -> dict | None:
         with self.connect() as conn:
@@ -558,3 +696,147 @@ class Store:
             for table in ("segments", "components", "invoices", "stages", "totals",
                           "reconciliations"):
                 conn.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
+
+    # ---------- M8 更正补入 ----------
+    def find_correction_release(self, root_run_id: str,
+                                file_sha256: str) -> dict | None:
+        """按版本链根基线 + 更正文件摘要找发布记录（幂等判定）。"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM correction_releases WHERE root_run_id=? "
+                "AND file_sha256=? LIMIT 1", (root_run_id, file_sha256)).fetchone()
+        return self._release_row(row) if row else None
+
+    def get_correction_release(self, release_id: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM correction_releases WHERE release_id=? LIMIT 1",
+                (release_id,)).fetchone()
+        return self._release_row(row) if row else None
+
+    def list_correction_releases(self, base_run_id: str | None = None) -> list[dict]:
+        with self.connect() as conn:
+            if base_run_id:
+                rows = conn.execute(
+                    "SELECT * FROM correction_releases WHERE base_run_id=? "
+                    "ORDER BY created_at", (base_run_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM correction_releases ORDER BY created_at").fetchall()
+        return [self._release_row(row) for row in rows]
+
+    def create_correction_release(self, item: dict,
+                                  conn: sqlite3.Connection | None = None) -> None:
+        def _work(c: sqlite3.Connection) -> None:
+            c.execute(
+                """INSERT INTO correction_releases (release_id, run_id, base_run_id,
+                        root_run_id, batch_key, status, mode, file_name, file_sha256,
+                        created_at, published_at, affected_subs_json,
+                        added_invoices_json, rejected_json, note)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (item["release_id"], item["run_id"], item["base_run_id"],
+                 item.get("root_run_id", item["base_run_id"]), item["batch_key"],
+                 item["status"], item["mode"], item["file_name"], item["file_sha256"],
+                 item["created_at"], item.get("published_at"),
+                 json.dumps(item.get("affected_subs", []), ensure_ascii=False),
+                 json.dumps(item.get("added_invoices", []), ensure_ascii=False),
+                 json.dumps(item.get("rejected", []), ensure_ascii=False),
+                 item.get("note", "")),
+            )
+
+        if conn is not None:
+            _work(conn)
+            return
+        with self.connect() as owned:
+            _work(owned)
+
+    def update_correction_release(self, release_id: str, **fields) -> None:
+        json_fields = {"affected_subs", "added_invoices", "rejected"}
+        sets, values = [], []
+        for key, value in fields.items():
+            if key in json_fields:
+                value = json.dumps(value, ensure_ascii=False)
+                key = f"{key}_json"
+            sets.append(f"{key}=?")
+            values.append(value)
+        if not sets:
+            return
+        values.append(release_id)
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE correction_releases SET {', '.join(sets)} WHERE release_id=?",
+                values)
+
+    def set_correction_release(self, conn: sqlite3.Connection, release_id: str,
+                               **fields) -> None:
+        """发布事务内更新发布记录（与新 run 同生共死）。"""
+        json_fields = {"affected_subs", "added_invoices", "rejected"}
+        sets, values = [], []
+        for key, value in fields.items():
+            if key in json_fields:
+                value = json.dumps(value, ensure_ascii=False)
+                key = f"{key}_json"
+            sets.append(f"{key}=?")
+            values.append(value)
+        if not sets:
+            return
+        values.append(release_id)
+        conn.execute(
+            f"UPDATE correction_releases SET {', '.join(sets)} WHERE release_id=?",
+            values)
+
+    def delete_correction_release(self, release_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM correction_releases WHERE release_id=?",
+                         (release_id,))
+
+    def put_correction_entries(self, release_id: str, items: list[dict]) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM correction_entries WHERE release_id=?", (release_id,))
+            conn.executemany(
+                """INSERT INTO correction_entries (release_id, sub_id, source_file,
+                        source_row_no, reason_code, field, raw_value, base_json,
+                        corrected_json, invoice_id, base_cents, final_cents)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [(release_id, item["sub_id"], item["source_file"],
+                  int(item["source_row_no"]), item["reason_code"], item.get("field", ""),
+                  item.get("raw_value", ""),
+                  json.dumps(item.get("base", {}), ensure_ascii=False),
+                  json.dumps(item.get("corrected", {}), ensure_ascii=False),
+                  item.get("invoice_id", ""), int(item.get("base_cents", 0)),
+                  int(item.get("final_cents", 0))) for item in items],
+            )
+
+    def list_correction_entries(self, release_id: str) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM correction_entries WHERE release_id=? ORDER BY source_row_no",
+                (release_id,)).fetchall()
+        out = []
+        for row in rows:
+            data = dict(row)
+            data["base"] = _loads(data.pop("base_json", "{}"), {})
+            data["corrected"] = _loads(data.pop("corrected_json", "{}"), {})
+            out.append(data)
+        return out
+
+    def mark_quarantine_resolved(self, conn: sqlite3.Connection, run_id: str,
+                                 file_name: str, row_nos: list[int],
+                                 resolved_by: str) -> int:
+        """在发布事务内把被更正命中的 error 隔离行标记结案，返回更新条数。"""
+        if not row_nos:
+            return 0
+        placeholders = ",".join("?" for _ in row_nos)
+        cur = conn.execute(
+            f"UPDATE quarantine SET resolved=1, resolved_by=? WHERE run_id=? "
+            f"AND file=? AND row_no IN ({placeholders})",
+            [resolved_by, run_id, file_name, *[int(n) for n in row_nos]],
+        )
+        return cur.rowcount
+
+    @staticmethod
+    def _release_row(row: sqlite3.Row) -> dict:
+        data = dict(row)
+        for key in ("affected_subs", "added_invoices", "rejected"):
+            data[key] = _loads(data.pop(f"{key}_json", "[]"), [])
+        return data

@@ -23,11 +23,14 @@ from .modules.m5_changes import service as change_service
 from .modules.m6_invoices import handler as m6_handler
 from .modules.m6_invoices import service as invoice_service
 from .modules.m7_export import handler as m7_handler
+from .modules.m8_correction import handler as m8_handler
+from .modules.m8_correction import service as correction_service
 from .store import Store
 
 MODULES = (m1_handler, m2_handler, m3_handler, m4_handler, m5_handler, m6_handler,
-           m7_handler)
-PAGE_PATHS = ("/", "/subscriptions", "/calendar", "/proration", "/changes", "/invoices")
+           m7_handler, m8_handler)
+PAGE_PATHS = ("/", "/subscriptions", "/calendar", "/proration", "/changes", "/invoices",
+              "/corrections")
 
 
 def _tables(settings, run: dict | None) -> tuple[object, object] | tuple[None, None]:
@@ -138,6 +141,17 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             "invoices": [], "ledgers": [], "totals": {}}
         return _render(request, "invoices.html", "invoices", invoices=data["invoices"],
                        ledgers=data["ledgers"], totals=data["totals"])
+
+    @app.get("/corrections")
+    def page_corrections(request: Request):
+        store = app.state.store
+        run = app.state.ctx.current_run(request.query_params.get("run_id"))
+        data = correction_service.overview(store, run["run_id"]) if run else {
+            "lineage": [], "releases": [], "current_release": None, "entries": []}
+        return _render(request, "corrections.html", "corrections",
+                       lineage=data["lineage"], releases=data["releases"],
+                       current_release=data["current_release"],
+                       correction_entries=data["entries"])
 
     def _head_ok() -> Response:
         return Response(status_code=200, media_type="text/html; charset=utf-8")

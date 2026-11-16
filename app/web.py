@@ -26,6 +26,7 @@ NAV = (
     ("/proration", "按日折算", "proration"),
     ("/changes", "变更抵扣", "changes"),
     ("/invoices", "账单对账", "invoices"),
+    ("/corrections", "更正补入", "corrections"),
 )
 
 
@@ -124,6 +125,7 @@ def page_context(ctx: Ctx, run_id: str | None, active: str) -> dict:
         "kind_labels": config.KIND_LABELS,
         "invoice_status_labels": config.INVOICE_STATUS_LABELS,
         "run_status_labels": config.RUN_STATUS_LABELS,
+        "run_kind_labels": config.RUN_KIND_LABELS,
         "money_unit": config.MONEY_UNIT,
         "column_labels": {
             **{key: label for key, (label, _) in config.SUB_COLUMNS.items()},
@@ -153,6 +155,7 @@ def setup(app) -> None:
     env.filters["kind"] = lambda k: config.KIND_LABELS.get(k, k or "—")
     env.filters["invoice_status"] = lambda s: config.INVOICE_STATUS_LABELS.get(s, s or "—")
     env.filters["run_status"] = lambda s: config.RUN_STATUS_LABELS.get(s, s or "—")
+    env.filters["run_kind"] = lambda s: config.RUN_KIND_LABELS.get(s, s or "原始采信")
     env.filters["flags"] = lambda items: [reasons.label_of(code) for code in (items or [])]
     env.filters["flag_codes"] = lambda items: list(items or [])
     app.state.templates = t

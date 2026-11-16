@@ -1,8 +1,8 @@
 # 深度登记 subbill 订阅变更按日折算与账单核对
 
-- 规模：中型（7 个功能模块，74–80 个文件，测试 ≥53）
+- 规模：中型（8 个功能模块，测试 100+）
 - 核心规则：期间 `[start, end)` 的实际天数做分母，变更切段后「预缴整期 − 未用额度抵扣 + 新价补收」，尾差按最大余额法分到 0.01
-- 使用者与工作流：SaaS 计费运营每月把订阅与变更两份导出文件拖进系统，先看隔离区确认哪些行不可用，再逐张核账单，最后导出账单与运行清单归档
+- 使用者与工作流：SaaS 计费运营每月把订阅与变更两份导出文件拖进系统，先看隔离区确认哪些行不可用，再逐张核账单，最后导出账单与运行清单归档；隔离行经人工更正后走 M8 定向补入，出更正版本而不推翻已确认账单
 
 ## 功能模块
 
@@ -15,6 +15,7 @@
 | M5 变更抵扣 | 看变更序列、被替代关系与抵扣行 | GET /api/changes | `app/modules/m5_changes/segments.py` `app/modules/m5_changes/credit.py` | `tests/test_changes.py` `tests/test_credit.py` |
 | M6 账单对账 | 出账、点行看明细、核对四本账 | GET /api/invoices | `app/modules/m6_invoices/invoice.py` `app/modules/m6_invoices/reconcile.py` | `tests/test_invoices.py` `tests/test_reconcile.py` |
 | M7 导出 | 导出账单 CSV、分段 CSV、运行清单 JSON | GET /api/export/invoices.csv | `app/modules/m7_export/csv_out.py` `app/modules/m7_export/manifest_out.py` | `tests/test_export.py` `tests/test_export_manifest.py` |
+| M8 更正补入 | 只补隔离行、发布更正版本、看版本链与三态对照 | POST /api/corrections | `app/modules/m8_correction/validator.py` `app/modules/m8_correction/service.py` | `tests/test_correction_service.py` `tests/test_correction_api.py` |
 
 端到端与不变量分别由 `tests/test_e2e.py`、`tests/test_invariants.py` 固定。
 
@@ -33,6 +34,7 @@
 | TRAP-23 | 期间端点归属与相邻段接缝 | 两端都算，重复计一天 | 半开 `[start, end)`，相邻段 end 等于下段 start | `app/modules/m5_changes/segments.py`、`app/modules/m2_calendar/days.py` | `tests/test_calendar.py::test_adjacent_segments_cover_period`、`tests/test_changes.py::test_change_on_period_start_zero_day_segment` |
 | TRAP-24 | 抵扣行、补收行各自四舍五入 | 分完合计比总额多 1 分 | 最大余额法把差额补到小数余额最大的分量，负数抵扣同样成立 | `app/modules/m4_proration/rounding.py` | `tests/test_rounding.py::test_largest_remainder_keeps_total`、`tests/test_credit.py::test_component_cents_sum_to_invoice` |
 | TRAP-25 | 同一订阅同一时刻两条变更 | 取到哪条看文件顺序，重跑结果会变 | 同日只让 (生效时刻, 变更号) 最小的一条生效，其余标 `R_CHANGE_OVERLAP` 并记替代关系 | `app/modules/m3_quality/service.py`、`app/modules/m5_changes/segments.py` | `tests/test_changes.py::test_same_instant_overlap_deterministic`、`tests/test_invariants.py::test_change_order_independence` |
+| TRAP-30 | 隔离行更正后补入，运营怕整批重算、财务怕已确认账单被改 | 就地覆盖旧账单导致已出账结果变化，或同份更正重跑重复补入 | 版本化定向补入：旧 run 冻结，新 run 只替换命中隔离的订阅并重算派生层；sha256 幂等、四账强制校验、失败回滚、`replace` 显式拒绝 | `app/modules/m8_correction/service.py`、`app/modules/m8_correction/validator.py` | `tests/test_correction_service.py`、`tests/test_correction_api.py` |
 
 ## 对账规则
 

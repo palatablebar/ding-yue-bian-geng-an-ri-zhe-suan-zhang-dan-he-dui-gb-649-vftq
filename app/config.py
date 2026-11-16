@@ -97,8 +97,17 @@ STAGE_LABELS = {
     "changes": "变更",
     "proration": "折算",
     "invoices": "账单",
+    "corrections": "更正",
 }
 STAGE_FLOW = "采信 → 期间 → 质量 → 变更 → 折算 → 账单"
+# M8 只允许定向补入；整批替换会改写已确认结果，显式拒绝。
+CORRECTION_MODE_PATCH = "patch"
+CORRECTION_MODE_REPLACE = "replace"
+
+RUN_KIND_LABELS = {
+    "ingest": "原始采信",
+    "correction": "更正版本",
+}
 
 INVOICE_STATUS_LABELS = {
     "ok": "已出账",

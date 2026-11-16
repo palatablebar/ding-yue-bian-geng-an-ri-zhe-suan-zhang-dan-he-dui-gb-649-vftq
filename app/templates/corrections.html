@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}更正补入{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>发布更正</h2>
+    <span class="sub">只补隔离行 · 旧版本冻结不覆盖 · 同文件重跑不重复补入</span>
+  </div>
+  <div class="form-row">
+    <div class="field">
+      <label for="correction-file">更正文件名（样例目录）</label>
+      <input type="text" id="correction-file" value="subscriptions_correction.csv" autocomplete="off">
+    </div>
+    <button class="btn" type="button" id="run-correction">补入发布</button>
+    <button class="btn btn-ghost" type="button" id="run-correction-replace">整批替换（应拒绝）</button>
+    <span class="toast" id="correction-toast" role="status"></span>
+  </div>
+  <p class="sub">也可直接 multipart 上传：<code>POST /api/corrections</code>（字段 <code>file</code>）。整批替换会改变已确认结果，系统一律拒绝。</p>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>版本链</h2>
+    <span class="sub">原结果与每个更正版本并存，点击切换查看</span>
+  </div>
+  {% if lineage %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="num">版本</th>
+          <th>类型</th>
+          <th>批次号</th>
+          <th>状态</th>
+          <th>生成时间</th>
+          <th>基线</th>
+          <th class="num">账单</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in lineage %}
+        <tr {% if item.run_id == run_id %}class="is-current"{% endif %}>
+          <td class="num">v{{ item.version_no }}</td>
+          <td><span class="tag {% if item.kind == 'correction' %}tag-warn{% else %}tag-info{% endif %}">{{ item.kind|run_kind }}</span></td>
+          <td><a href="/corrections?run_id={{ item.run_id }}"><code>{{ item.run_id }}</code></a></td>
+          <td>{{ item.status|run_status }}</td>
+          <td><code>{{ item.created_at|local }}</code></td>
+          <td><code>{{ item.base_run_id|sha if item.base_run_id else "—" }}</code></td>
+          <td class="num">{{ item.counters.get('subs_kept', 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">还没有批次，先在首页采信。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>更正发布记录</h2>
+    <span class="sub">{{ releases|length }} 次发布尝试（含失败回滚留痕）</span>
+  </div>
+  {% if releases %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>发布号</th><th>状态</th><th>更正文件</th><th>基线批次</th><th>新版本</th>
+          <th>补入订阅</th><th>新增账单</th><th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rel in releases %}
+        <tr>
+          <td><code>{{ rel.release_id }}</code></td>
+          <td>{% if rel.status == 'published' %}<span class="tag tag-ok">已发布</span>{% else %}<span class="tag tag-bad">失败回滚</span>{% endif %}</td>
+          <td><code>{{ rel.file_name }}</code></td>
+          <td><code>{{ rel.base_run_id|sha }}</code></td>
+          <td><a href="/corrections?run_id={{ rel.run_id }}"><code>{{ rel.run_id|sha }}</code></a></td>
+          <td>{{ rel.affected_subs|join(", ") }}</td>
+          <td>{{ rel.added_invoices|join(", ") if rel.added_invoices else "—" }}</td>
+          <td><code>{{ rel.created_at|local }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">还没有更正发布。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>三态对照：保留的原结果 · 补入行 · 最终版本</h2>
+    <span class="sub">当前批次 <code>{{ run_id }}</code></span>
+  </div>
+  {% if correction_entries %}
+  <ul class="link-list">
+    <li><a class="btn" href="/api/corrections/entries.csv">更正条目 CSV</a></li>
+    <li><a class="btn btn-ghost" href="/api/corrections">接口</a></li>
+  </ul>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>订阅号</th><th>隔离原因</th><th>原值/原结果</th>
+          <th>补入行（更正值）</th><th class="num">原账单额(元)</th>
+          <th class="num">最终账单额(元)</th><th class="num">差额(元)</th><th>最终账单号</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in correction_entries %}
+        <tr>
+          <td><code>{{ entry.sub_id }}</code></td>
+          <td><span class="tag tag-bad">{{ reason_labels.get(entry.reason_code, entry.reason_code) }}</span></td>
+          <td class="account" title="{{ entry.base.quarantine_detail }}"><code>{{ entry.raw_value }}</code></td>
+          <td>
+            <div class="marks">
+              <span class="tag tag-info">{{ entry.corrected.plan }} · {{ entry.corrected.monthly }} 元</span>
+              <span class="tag tag-info">[{{ entry.corrected.period_start }}, {{ entry.corrected.period_end }})</span>
+              <span class="tag tag-info">{{ entry.corrected.state|state }}</span>
+            </div>
+          </td>
+          <td class="num">{{ entry.base_cents|money }}</td>
+          <td class="num">{{ entry.final_cents|money }}</td>
+          <td class="num {% if entry.final_cents - entry.base_cents > 0 %}num-up{% endif %}">{{ (entry.final_cents - entry.base_cents)|money }}</td>
+          <td><a href="/invoices?run_id={{ run_id }}"><code>{{ entry.invoice_id }}</code></a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">当前批次不是更正版本，或还没有补入条目。从上方版本链选择一个更正版本查看三态对照。</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/corrections.js" defer></script>
+{% endblock %}
