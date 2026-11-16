@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}变更抵扣{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>变更序列</h2>
+    <span class="sub">{{ summary.changes }} 条 · 生效 {{ summary.applied }} · 被替代 {{ summary.superseded }}</span>
+  </div>
+  {% if changes %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>变更号</th>
+          <th>订阅号</th>
+          <th>生效(本地)</th>
+          <th>类型</th>
+          <th>新套餐</th>
+          <th class="num">新月价(元)</th>
+          <th>结果</th>
+          <th>替代者</th>
+          <th>标记</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in changes %}
+        <tr>
+          <td><code>{{ row.change_id }}</code></td>
+          <td><code>{{ row.sub_id }}</code></td>
+          <td><code>{{ row.effective_local }}</code></td>
+          <td>{{ row.kind_label }}</td>
+          <td>{{ row.new_plan or "—" }}</td>
+          <td class="num">{{ row.new_price|amount if row.new_price != "" else "—" }}</td>
+          <td class="nowrap">{% if row.applied %}<span class="tag tag-ok">生效</span>{% else %}<span class="tag tag-bad">被替代</span>{% endif %}</td>
+          <td><code>{{ row.superseded_by or "—" }}</code></td>
+          <td>
+            <div class="marks">
+              {% for code in row.flags %}<span class="tag tag-warn">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有变更记录。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>抵扣行</h2>
+    <span class="sub">{{ summary.components }} 行 · 抵扣 {{ summary.credit_rows }} 行 · 抵扣合计 {{ summary.credit_cents|money }} 元</span>
+  </div>
+  {% if summary.components %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账单号</th>
+          <th class="num">序</th>
+          <th>类型</th>
+          <th>来源</th>
+          <th class="num">天数</th>
+          <th class="num">月价(元)</th>
+          <th class="num">金额(元)</th>
+          <th>标记</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in changes %}
+        {% for row in change.components %}
+        <tr>
+          <td><code>{{ row.invoice_id }}</code></td>
+          <td class="num">{{ row.seq + 1 }}</td>
+          <td>{% if row.kind == "charge" %}补收{% else %}抵扣{% endif %}</td>
+          <td><code>{{ row.label }}</code></td>
+          <td class="num">{{ row.days }}</td>
+          <td class="num">{{ row.monthly|amount }}</td>
+          <td class="num">{{ row.cents|money }}</td>
+          <td>
+            <div class="marks">
+              {% for code in row.flags %}<span class="tag tag-warn">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有抵扣行。</p>
+  {% endif %}
+</section>
+{% endblock %}

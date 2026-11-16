@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}期间日历{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>期间</h2>
+    <span class="sub">{{ totals.subscriptions }} 个订阅 · {{ totals.days }} 天 · 闰日期间 {{ totals.leap_periods }}</span>
+  </div>
+  {% if periods %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>订阅号</th>
+          <th>账户</th>
+          <th>区间</th>
+          <th class="num">天数</th>
+          <th class="num">当月天数</th>
+          <th>闰年</th>
+          <th>含闰日</th>
+          <th>跨月</th>
+          <th>时区</th>
+          <th class="num">行号</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in periods %}
+        <tr>
+          <td><code>{{ row.sub_id }}</code></td>
+          <td class="account" title="{{ row.account }}">{{ row.account }}</td>
+          <td><code>{{ row.range_label }}</code></td>
+          <td class="num">{{ row.days }}</td>
+          <td class="num">{{ row.month_days }}</td>
+          <td>{% if row.leap_year %}是{% else %}否{% endif %}</td>
+          <td>{% if row.leap %}<span class="tag tag-warn">闰日</span>{% else %}—{% endif %}</td>
+          <td>{% if row.cross_month %}是{% else %}否{% endif %}</td>
+          <td><code>{{ row.timezone }}</code></td>
+          <td class="num">{{ row.row_no }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有期间数据。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>天数核算</h2>
+    <span class="sub">半开区间 [起, 止)</span>
+  </div>
+  <div class="form-row">
+    <div class="field">
+      <label for="day-start">起</label>
+      <input type="text" id="day-start" value="2028-02-01">
+    </div>
+    <div class="field">
+      <label for="day-end">止</label>
+      <input type="text" id="day-end" value="2028-03-01">
+    </div>
+    <button class="btn" type="button" id="day-check">核算</button>
+    <span class="toast" id="day-result" role="status"></span>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}按日折算{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>分段金额</h2>
+    <span class="sub">{{ summary.segments }} 段 · {{ summary.invoices }} 张账单 · 合计 {{ summary.amount }} 元</span>
+  </div>
+  {% if segments %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账单号</th>
+          <th>段</th>
+          <th>起</th>
+          <th>止</th>
+          <th class="num">天数</th>
+          <th>套餐</th>
+          <th>状态</th>
+          <th class="num">月价(元)</th>
+          <th class="num">日价(元)</th>
+          <th class="num">金额(元)</th>
+          <th>标记</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in segments %}
+        <tr>
+          <td><code>{{ row.invoice_id }}</code></td>
+          <td class="num">{{ row.seq + 1 }}</td>
+          <td><code>{{ row.start_date }}</code></td>
+          <td><code>{{ row.end_date }}</code></td>
+          <td class="num">{{ row.days }}</td>
+          <td>{{ row.plan }}</td>
+          <td>{{ row.state|state }}</td>
+          <td class="num">{{ row.monthly|amount }}</td>
+          <td class="num">{{ row.daily[:10] }}</td>
+          <td class="num">{{ row.amount }}</td>
+          <td>
+            <div class="marks">
+              {% for code in row.flags %}<span class="tag tag-warn">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有分段。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>日价</h2>
+    <span class="sub">月价 ÷ 期间天数</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账单号</th>
+          <th class="num">期间天数</th>
+          <th class="num">首段月价(元)</th>
+          <th class="num">日价(元)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in segments if row.seq == 0 %}
+        <tr>
+          <td><code>{{ row.invoice_id }}</code></td>
+          <td class="num">{{ row.period_days }}</td>
+          <td class="num">{{ row.monthly|amount }}</td>
+          <td class="num">{{ row.daily[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

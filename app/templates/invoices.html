@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}账单对账{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>账单</h2>
+    <span class="sub">{{ totals.get("invoices", 0) }} 张 · 合计 {{ totals.get("invoice_cents", 0)|money }} 元 · 零金额 {{ totals.get("zero_invoices", 0) }}</span>
+  </div>
+  {% if invoices %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账单号</th>
+          <th>账户</th>
+          <th>期间</th>
+          <th class="num">期间天数</th>
+          <th class="num">计费</th>
+          <th class="num">免费</th>
+          <th class="num">分段(元)</th>
+          <th class="num">抵扣(元)</th>
+          <th class="num">账单额(元)</th>
+          <th>状态</th>
+          <th>标记</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in invoices %}
+        <tr class="row-link" data-invoice="{{ row.invoice_id }}" tabindex="0" title="查看明细">
+          <td><code>{{ row.invoice_id }}</code></td>
+          <td class="account" title="{{ row.account }}">{{ row.account }}</td>
+          <td><code>{{ row.range_label }}</code></td>
+          <td class="num">{{ row.period_days }}</td>
+          <td class="num">{{ row.billed_days }}</td>
+          <td class="num">{{ row.free_days }}</td>
+          <td class="num">{{ row.charge }}</td>
+          <td class="num">{{ row.credit }}</td>
+          <td class="num">{{ row.amount }}</td>
+          <td class="nowrap">{{ row.status|invoice_status }}</td>
+          <td>
+            <div class="marks">
+              {% for code in row.flags %}<span class="tag tag-warn">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有账单。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>对账</h2>
+    <span class="sub">{{ totals.get("billed_days", 0) }} 计费天 · {{ totals.get("free_days", 0) }} 免费天</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账</th>
+          <th class="num">左</th>
+          <th class="num">右</th>
+          <th class="num">差</th>
+          <th>结论</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in ledgers %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="num">{{ row.left_text }}</td>
+          <td class="num">{{ row.right_text }}</td>
+          <td class="num">{{ row.diff_text }}</td>
+          <td>{% if row.status == "ok" %}<span class="tag tag-ok">平</span>{% else %}<span class="tag tag-bad">不平</span>{% endif %}</td>
+          <td><code>{{ row.note }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>导出</h2>
+    <span class="sub">{{ totals.get("segments", 0) }} 段 · {{ totals.get("components", 0) }} 抵扣行</span>
+  </div>
+  <ul class="link-list">
+    <li><a class="btn" href="/api/export/invoices.csv">账单 CSV</a></li>
+    <li><a class="btn" href="/api/export/segments.csv">分段 CSV</a></li>
+    <li><a class="btn" href="/api/export/manifest.json">清单 JSON</a></li>
+    <li><a class="btn btn-ghost" href="/api/quarantine.csv">隔离区 CSV</a></li>
+  </ul>
+</section>
+
+<dialog class="detail" id="invoice-dialog">
+  <form method="dialog" style="text-align:right"><button class="btn btn-ghost" type="submit">关闭</button></form>
+  <h3 id="invoice-title">—</h3>
+  <div id="invoice-body"></div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="/static/invoices.js" defer></script>
+{% endblock %}

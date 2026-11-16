@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}批次清单{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>采信样例</h2>
+    <span class="sub">{{ sample_subscriptions }} · {{ sample_changes }}</span>
+  </div>
+  <div class="form-row">
+    <div class="field">
+      <label for="sub-file">订阅文件</label>
+      <input type="text" id="sub-file" value="{{ sample_subscriptions }}" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="chg-file">变更文件</label>
+      <input type="text" id="chg-file" value="{{ sample_changes }}" autocomplete="off">
+    </div>
+    <button class="btn" type="button" id="run-import">采信</button>
+    <span class="toast" id="import-toast" role="status"></span>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>批次</h2>
+    <span class="sub">最近 {{ runs|length }} 批</span>
+  </div>
+  {% if runs %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>批次号</th>
+          <th>校验位</th>
+          <th>状态</th>
+          <th>生成时间</th>
+          <th>输入摘要</th>
+          <th class="num">账单</th>
+          <th class="num">账单额(元)</th>
+          <th class="num">隔离行</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in runs %}
+        <tr>
+          <td><code>{{ item.run_id }}</code></td>
+          <td><code>{{ item.check_digit }}</code></td>
+          <td>{{ item.status|run_status }}</td>
+          <td><code>{{ item.created_at|local }}</code></td>
+          <td><code>{{ item.input_digest|sha }}</code></td>
+          <td class="num">{{ item.invoices }}</td>
+          <td class="num">{{ item.invoice_cents|money }}</td>
+          <td class="num">{{ item.quarantined_rows }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">还没有批次，点上方采信开始。</p>
+  {% endif %}
+</section>
+
+{% if has_run %}
+<section class="block">
+  <div class="block-head">
+    <h2>阶段</h2>
+    <span class="sub">{{ totals.get("invoices", 0) }} 张账单 · {{ totals.get("invoice_cents", 0)|money }} 元</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th class="num">进入</th>
+          <th class="num">产出</th>
+          <th class="num">隔离</th>
+          <th>备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stage in stages %}
+        <tr>
+          <td>{{ stage_labels.get(stage.stage, stage.stage) }}</td>
+          <td class="num">{{ stage.in_count }}</td>
+          <td class="num">{{ stage.out_count }}</td>
+          <td class="num">{{ stage.quarantine_count }}</td>
+          <td><code>{{ stage.note }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>对账</h2>
+    <span class="sub">{{ totals.get("period_days", 0) }} 天 · {{ totals.get("segments", 0) }} 段</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>账</th>
+          <th class="num">左</th>
+          <th class="num">右</th>
+          <th class="num">差</th>
+          <th>结论</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in ledgers %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="num">{{ row.left_text }}</td>
+          <td class="num">{{ row.right_text }}</td>
+          <td class="num">{{ row.diff_text }}</td>
+          <td>{% if row.status == "ok" %}<span class="tag tag-ok">平</span>{% else %}<span class="tag tag-bad">不平</span>{% endif %}</td>
+          <td><code>{{ row.note }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

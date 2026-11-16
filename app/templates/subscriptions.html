@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}订阅清单{% endblock %}
+{% block body %}
+<section class="block">
+  <div class="block-head">
+    <h2>输入</h2>
+    <span class="sub">{% for item in inputs %}{{ item.name }} · {{ item.rows }} 行{% if not loop.last %} · {% endif %}{% endfor %}</span>
+  </div>
+  {% if inputs %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>文件</th>
+          <th>编码</th>
+          <th class="num">字节</th>
+          <th class="num">数据行</th>
+          <th>sha256</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in inputs %}
+        <tr>
+          <td><code>{{ item.name }}</code></td>
+          <td><code>{{ item.encoding }}</code></td>
+          <td class="num">{{ item.bytes }}</td>
+          <td class="num">{{ item.rows }}</td>
+          <td><code title="{{ item.sha256 }}">{{ item.sha256|sha }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有输入摘要。</p>
+  {% endif %}
+</section>
+
+{% if maps %}
+<section class="block">
+  <div class="block-head">
+    <h2>列契约</h2>
+    <span class="sub">{{ maps.subscriptions.canonical|length }} 列订阅 · {{ maps.changes.canonical|length }} 列变更</span>
+  </div>
+  <div class="split">
+    {% for key, mapping in [("subscriptions", maps.subscriptions), ("changes", maps.changes)] %}
+    <div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>规范字段</th><th>列号</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            {% for field, index in mapping.canonical.items() %}
+            <tr>
+              <td>{{ column_labels.get(field, field) }}</td>
+              <td class="num">{{ index + 1 }}</td>
+              <td><span class="tag tag-ok">已识别</span></td>
+            </tr>
+            {% endfor %}
+            {% for field in mapping.missing %}
+            <tr>
+              <td>{{ column_labels.get(field, field) }}</td>
+              <td class="num">—</td>
+              <td><span class="tag tag-bad">缺列</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="block">
+  <div class="block-head">
+    <h2>订阅</h2>
+    <span class="sub">{{ subscriptions|length }} 条可用 · {{ quarantine.totals.entries }} 条隔离记录</span>
+  </div>
+  {% if subscriptions %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>订阅号</th>
+          <th>账户</th>
+          <th>套餐</th>
+          <th class="num">月价(元)</th>
+          <th>期间</th>
+          <th class="num">天数</th>
+          <th>时区</th>
+          <th>状态</th>
+          <th class="num">行号</th>
+          <th>标记</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in subscriptions %}
+        <tr>
+          <td><code>{{ sub.sub_id }}</code></td>
+          <td class="account" title="{{ sub.account }}">{{ sub.account }}</td>
+          <td>{{ sub.plan }}</td>
+          <td class="num">{{ sub.monthly|amount }}</td>
+          <td><code>[{{ sub.period_start }}, {{ sub.period_end }})</code></td>
+          <td class="num">{{ sub.period_days }}</td>
+          <td><code>{{ sub.tz }}</code></td>
+          <td class="nowrap">{{ sub.state|state }}</td>
+          <td class="num">{{ sub.row_no }}</td>
+          <td>
+            <div class="marks">
+              {% for code in sub.flags %}<span class="tag tag-info">{{ reason_labels.get(code, code) }}</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有可用订阅。</p>
+  {% endif %}
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>隔离区</h2>
+    <span class="sub">{{ quarantine.totals.error }} 隔离 · {{ quarantine.totals.warn }} 复核 · {{ quarantine.totals.info }} 归一</span>
+  </div>
+  <ul class="link-list">
+    <li><a class="btn" href="/api/quarantine.csv">隔离区 CSV</a></li>
+    <li><a class="btn btn-ghost" href="/api/quarantine">接口</a></li>
+  </ul>
+  {% if quarantine.entries %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>文件</th>
+          <th class="num">行号</th>
+          <th>级别</th>
+          <th>原因码</th>
+          <th>原因</th>
+          <th>字段</th>
+          <th>原值</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in quarantine.entries %}
+        <tr>
+          <td><code>{{ item.file }}</code></td>
+          <td class="num">{{ item.row_no if item.row_no else "—" }}</td>
+          <td><span class="tag {% if item.level == 'error' %}tag-bad{% elif item.level == 'warn' %}tag-warn{% else %}tag-info{% endif %}">{{ item.level_label }}</span></td>
+          <td><code>{{ item.code }}</code></td>
+          <td>{{ item.label }}</td>
+          <td>{{ item.field }}</td>
+          <td><code title="{{ item.raw_value }}">{{ item.raw_value }}</code></td>
+          <td><code>{{ item.detail }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">这一批没有隔离记录。</p>
+  {% endif %}
+</section>
+{% endblock %}

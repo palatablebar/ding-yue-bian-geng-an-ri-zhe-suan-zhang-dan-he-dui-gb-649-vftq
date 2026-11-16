@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}批次清单{% endblock %} · subbill</title>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/layout.css">
+<link rel="stylesheet" href="/static/components.css">
+</head>
+<body>
+<div class="sheet">
+  <header class="receipt-head">
+    <div class="brand">subbill<small>订阅账单</small></div>
+    <dl class="run-meta">
+      <div>
+        <dt>批次号</dt>
+        <dd>{% if run_id %}{{ run_id }}<span class="check" title="校验位">{{ check_digit }}</span>{% else %}—{% endif %}</dd>
+      </div>
+      <div>
+        <dt>状态</dt>
+        <dd>{{ (run.status|run_status) if run else "—" }}</dd>
+      </div>
+      <div>
+        <dt>隔离行</dt>
+        <dd class="num">{{ run.counters.quarantined_rows if run else 0 }}</dd>
+      </div>
+      <div>
+        <dt>生成时间</dt>
+        <dd>{{ generated_at }}</dd>
+      </div>
+    </dl>
+  </header>
+  <div class="perforation" aria-hidden="true"></div>
+  <nav class="tabs" aria-label="主导航">
+    {% for href, label, key in nav %}
+    <a href="{{ href }}"{% if key == active %} class="is-active" aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <main class="sheet-body">
+    {% block body %}{% endblock %}
+  </main>
+  <footer class="sheet-foot">
+    <span>{{ stage_flow }}</span>
+    <span>{{ timezone_label }}</span>
+  </footer>
+</div>
+<script src="/static/app.js" defer></script>
+<script src="/static/table.js" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

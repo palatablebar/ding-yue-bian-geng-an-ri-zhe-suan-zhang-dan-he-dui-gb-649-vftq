@@ -1,0 +1,34 @@
+/* subbill 主题：L9 批次清单（纸白、墨绿、等宽收据、零圆角）。
+   只有变量，不写布局与组件规则。 */
+:root {
+  --bg: #fcfbf7;
+  --bg-2: #f4f2e8;
+  --surface: #fffef9;
+  --surface-2: #f7f5ec;
+  --ink: #1b2a22;
+  --ink-2: #3b4a41;
+  --ink-muted: #6b7a70;
+  --line: #d9d6c7;
+  --line-strong: #b7b4a2;
+  --accent: #2f6b4f;
+  --accent-soft: #e4ede6;
+  --accent-ink: #f5faf6;
+  --ok: #2f6b4f;
+  --warn: #8a6a1f;
+  --warn-soft: #f6efdc;
+  --bad: #8f3b2b;
+  --bad-soft: #f7e8e4;
+  --info: #5a6b7a;
+  --font-ui: "SFMono-Regular", "Menlo", "Consolas", "Noto Sans Mono CJK SC", monospace;
+  --font-num: "SFMono-Regular", "Menlo", "Consolas", monospace;
+  --font-doc: "Songti SC", "Noto Serif CJK SC", serif;
+  --radius: 0;
+  --radius-sm: 0;
+  --pad: 18px;
+  --gap: 14px;
+  --row-h: 28px;
+  --shadow: none;
+  --hair: 1px;
+  --perf: repeating-linear-gradient(90deg, var(--line-strong) 0 5px, transparent 5px 11px);
+  --tab-ink: #44594c;
+}
